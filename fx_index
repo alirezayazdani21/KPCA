@@ -1,0 +1,94 @@
+library(kernlab)
+library(quantmod)
+library(PerformanceAnalytics)
+library(xts)
+library(dplyr)
+library(ggplot2)
+library(Metrics)
+
+
+fx<- c("DEXUSEU","DEXSDUS","DEXJPUS",
+       "DEXSZUS","DEXCAUS","DEXUSUK",
+       "DEXUSNZ","DEXUSAL","DEXNOUS",
+       "DEXCHUS")
+
+getSymbols(fx,src="FRED")
+
+levels<-na.omit(cbind.xts(DEXUSEU,DEXSDUS/7,DEXJPUS/100,
+                          DEXSZUS,DEXCAUS,DEXUSUK,
+                          DEXUSNZ,DEXUSAL,DEXNOUS/7,
+                          DEXCHUS/7))
+
+
+levels<-to.weekly(levels,indexAt = "last", OHLC = F)
+#levels<-to.monthly(levels,indexAt = "last", OHLC = F)
+colnames(levels)<-c("EUR","SEK","JPY",
+                    "CHF","CAD","GBP",
+                    "NZD","AUD","NOK",
+                    "CNY")
+
+plot.xts(levels,legend.loc="topright",main="")
+
+
+returns<-Return.calculate(levels)
+plot.xts(returns,legend.loc="topleft",main="")
+
+#####################################################
+#https://en.m.wikipedia.org/wiki/U.S._Dollar_Index
+USDX<-na.omit(50.1434*cbind(levels$EUR^-0.576+
+                         levels$JPY^0.136+
+                         levels$GBP^-0.119+
+                         levels$CAD^0.091+
+                         levels$SEK^0.042+
+                         levels$CHF^0.036))
+
+USDX<-na.omit(50.1434*cbind(levels$EUR^0.576+
+                              levels$JPY^-0.136+
+                              levels$GBP^0.119+
+                              levels$CAD^-0.091+
+                              levels$SEK^-0.042+
+                              levels$CHF^-0.036))
+colnames(USDX)<-"USDX"
+plot(USDX)
+
+####################################################
+getSymbols("TWEXB",src="FRED")
+TWEXB<-to.monthly(TWEXB,indexAt = "last", OHLC = FALSE)
+####################################################
+#kernel pca (nonlinear pca)
+kpca<-kpca(as.matrix(levels),
+           #kernel="tanhdot",kpar=list(scale=1, offset=0),
+           #kernel="polydot",kpar=list(degree=3,scale=1, offset=0),
+           #kernel="laplacedot",#kpar=list(degree=2,scale=1, offset=0),
+           features=1)
+
+plot(pcv(kpca)[,1])
+
+PCS<-as.data.frame(as.numeric(scale(kpca@rotated))) %>% 
+  mutate(dt=index(returns),
+         percent_rank(as.numeric(scale(kpca@rotated)))) %>% 
+  select(dt,everything())
+colnames(PCS)<-c("dt","kpca","kpca_pct_rnk")
+
+PCS$runsd_kpca<-runSD(PCS$kpca,n=12)
+PCS$runsd_kpca_pct_rnk<-percent_rank(PCS$runsd)
+
+xx<- PCS %>%na.omit() #%>% mutate(Turb_FX=rates[-1,]$Turbulence_Currency) %>% 
+
+ggplot(data=xx,aes(x=dt,y=kpca))+geom_line(col="blue",linetype="dashed")+
+  geom_abline(slope = 0,intercept = c(-1,0,1),col="grey",size=0.5,linetype="dashed")+
+  #geom_line(data=xx,aes(x=dt,y=Turb_FX),col="pink",linetype="dashed")+
+  geom_line(data=xx,aes(x=dt,y=kpca_pct_rnk),col="red")+
+  geom_line(data=xx,aes(x=dt,y=runsd_kpca),col="grey",size=1,linetype="dashed")+
+  geom_line(data=xx,aes(x=dt,y=runsd_kpca_pct_rnk),col="black",size=1)
+
+
+xxts<-as.xts(xx[,-1],order.by = xx$dt)
+xxts<-na.omit(cbind.xts(xxts,scale(USDX)))
+plot.xts(xxts[,c(1,5)],main="",legend.loc="bottomright")
+
+cor(xxts$kpca,xxts$USDX)
+Metrics::mape(xxts$kpca,xxts$USDX)
+Metrics::rmse(xxts$kpca,xxts$USDX)
+
+
