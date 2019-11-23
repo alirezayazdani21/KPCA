@@ -20,6 +20,7 @@ levels<-na.omit(cbind.xts(DEXUSEU,DEXSDUS/7,DEXJPUS/100,
                           DEXCHUS/7))
 
 
+
 levels<-to.weekly(levels,indexAt = "last", OHLC = F)
 #levels<-to.monthly(levels,indexAt = "last", OHLC = F)
 colnames(levels)<-c("EUR","SEK","JPY",
